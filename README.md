@@ -10,14 +10,14 @@ This repository contains Python scripts for behavioral and performance analyses 
    Download or clone the repository to your local machine.
 
 2. **Install Python**  
-   Ensure you have Python 3.10+ installed.
+   Ensure you have Python 3.11+ installed.
 
 3. **Install dependencies**  
    The recommended way is to use [Poetry](https://python-poetry.org/):
 
    ```powershell
    # In the project directory
-   poetry install
+   poetry install --no-root
    ```
 
    Alternatively, install dependencies manually:
