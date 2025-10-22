@@ -1,18 +1,28 @@
+#%% Preparations ---------------------------------------------------------------
+
 import pandas as pd
 import numpy as np
 import os
 import pingouin as pg
 
-# Load the .txt file as a DataFrame
-df = pd.read_csv('performance_behav.txt', sep="\t")  # Adjust sep as needed
 
-### Check for exlusion criterion ---------------------------------------------
-# -> exclude subjects with accuracy < 50% in Go / NoGo task from all analyses
+file_path = 'Q:/Neuro/data/projects/mek_sports01/eegl/derivatives/'
+pathout = 'Q:/Neuro/data/projects/mek_sports01/stats/results/'
+os.chdir(file_path)
+
+palette = ["#C0C0C0", "#CC3D3D","#1E90FF" ]
 
 
-# Convert from wide to long format
+#%% Load & prepare data
+
+df = pd.read_csv(os.path.join(file_path, 'performance_behav.txt'), sep="\t")
+
+# Check for outliers -------------------------------------------------------
+
 df_long = pd.melt(df, id_vars=["ID", 'Group'], value_vars= ['accuracy_pre', 'accuracy_post'], var_name="Block", value_name="Accuracy")
 
+'Accuracy values are bounded (0–1), so the distribution is non-normal by nature, especially when values cluster near 1.'
+'Standard deviation–based criteria assume a roughly symmetric, unbounded distribution — which doesn’t hold here.'
 
 accuracy_cutoff = 0.50
 
@@ -44,6 +54,7 @@ ACCURACY
 df = df.drop([10, 13, 28, 56, 61, 67, 76, 88])
 
 
+# %% collect descriptive data & store in table
 ### Recalled Words ###
 
 rec_mean_pre = df['recall_pre'].mean()
@@ -130,7 +141,6 @@ acc_swim_mean_post = df.loc[df['Group'] == "swim"]['accuracy_post'].mean()
 acc_swim_sd_post = df.loc[df['Group'] == "swim"]['accuracy_post'].std()
 acc_swim_min_post = df.loc[df['Group'] == "swim"]['accuracy_post'].min()
 acc_swim_max_post = df.loc[df['Group'] == "swim"]['accuracy_post'].max()
-
 
 
 ### Go RT ###
@@ -235,25 +245,24 @@ variables = ['recall_mean', 'recall_sd', 'recall_min', 'recall_max',
              'rt_mean', 'rt_sd', 'rt_min', 'rt_max']
 summary_data.insert(loc=0, column='variable', value=variables)
 
+#os.chdir(pathout)
+#summary_data.to_excel('descriptive_data.xlsx')
 
-### List difficulty ###
 
-df = pd.read_csv('performance_table.txt', sep="\t")  # Adjust sep as needed
+#%% List difficulty -----------------------------------------------------------------------------
+
+df = pd.read_csv(os.path.join(file_path, 'performance_table.txt'), sep="\t")  # Adjust sep as needed
 df = df.drop([10, 13, 28, 56, 61, 67, 76, 88])
 
 df_long = pd.melt(df, id_vars=["ID", 'Group'], value_vars= ['per_list_1', 'per_list_2', 'per_list_3', 'per_list_4'], var_name="Block", value_name="Recall")
 
 
 my_aov = pg.anova(data = df_long, dv = 'Recall', between = 'Block')
-print(my_aov.round(3))
-
+my_aov.round(3)
 
 '''  Source  ddof1  ddof2      F  p-unc    np2
-0  Block      3    324  0.992  0.397  0.009
-'''
+0  Block      3    324  0.992  0.397  0.009'''
 
-
-
-
+# -> no differences between the lists!
 
 

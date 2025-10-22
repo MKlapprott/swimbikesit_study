@@ -1,18 +1,26 @@
+# %% preparations
+
 import seaborn as sns
 import pandas as pd
 import matplotlib.pyplot as plt
-from scipy.stats import mannwhitneyu
+import os
 from statsmodels.stats.multitest import multipletests
+import numpy as np
+from scipy.stats import mannwhitneyu
 
 
-df = pd.read_csv('all_questionnaires.txt', sep="\t")  # Adjust sep as needed
+file_path = 'Q:/data/projects/mek_sports01/eegl/rawdata/'
+os.chdir(file_path)
 
-df = df.drop([3, 15, 22, 27, 36, 51, 58])  # Remove excluded subjects
+palette = ["#C0C0C0", "#CC3D3D","#1E90FF" ]
+
+# %% load data & prepare -------------------------------------------------------------
+
+df = pd.read_csv(os.path.join(file_path, 'mek_sports01_all_questionnaires.txt'), sep = "\t")
+
+# Remove already excluded subjects
+df = df.drop([3, 15, 22, 27, 36, 51, 58])
 df = df.reset_index(drop = True)
-
-
-### Check for exlusion criterion ---------------------------------------------
-# -> exclude subjects with accuracy < 50% in Go / NoGo task from all analyses
 
 ''' 
 
@@ -31,14 +39,13 @@ ACCURACY
 
 '''
 
-
+# remove subjects with accuracies < 0.5
 df = df.drop([10, 13, 28, 56, 61, 67, 76, 88])
-
 
 df['group'] = pd.Categorical(df['group'], categories=['sit', 'bike', 'swim'], ordered=True)
 
-##############################################################################
-# PANAS
+
+#%% PANAS
 
 positive_items = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7', 'P8','P9', 'P10']
 negative_items = ['N1', 'N2', 'N3', 'N4', 'N5', 'N6',  'N7', 'N8',  'N9', 'N10']
@@ -51,16 +58,13 @@ df_long = pd.melt(df, id_vars=["ID", 'group'], value_vars= ['mean_positive', 'me
                   var_name="Question", value_name="Score")
 
 
-##############################################################################
-# Statistics
-
-
-
 df_sit = df.loc[df['group'] == "sit"]
 df_bike = df.loc[df['group'] == "bike"]
 df_swim = df.loc[df['group'] == "swim"]
 df_PE = df.loc[df['group'] != "sit"]
 
+
+# Statistics ----------------------------------------------------------------------------------------
 
 # Positive scale difference
 u_pos, p_pos = mannwhitneyu(df_sit['mean_positive'], df_PE['mean_positive'], alternative='two-sided')
@@ -74,11 +78,28 @@ print(f"Negative scale: U={u_neg}, p={p_neg:.4f}")
 Negative scale: U=606.5, p=0.1268'''
 
 
+# Positive scale difference
+u_pos, p_pos_2 = mannwhitneyu(df_bike['mean_positive'], df_swim['mean_positive'], alternative='two-sided')
+print(f"Positive scale: U={u_pos}, p={p_pos_2:.4f}")
 
-### plot ---------------------------------------------------------------------
-# Figure 3a
+# Negative scale difference
+u_neg, p_neg_2 = mannwhitneyu(df_bike['mean_negative'], df_swim['mean_negative'], alternative='two-sided')
+print(f"Negative scale: U={u_neg}, p={p_neg_2:.4f}")
 
-palette = ["#696969", "#DC143C","#1E90FF" ]
+
+'''Positive scale: U=319.0, p=0.5160
+Negative scale: U=471.0, p=0.0349'''
+
+
+# correct for multiple testing with Bonferroni
+pvals = [p_pos, p_neg]
+_, pvals_bonf, _, _ = multipletests(pvals, method='bonferroni')
+
+print("Bonferroni-corrected p-values:", pvals_bonf)
+'Bonferroni-corrected p-values: [0.00666993 0.25363515]'
+
+
+#%% plot ---------------------------------------------------------------------
 
 sns.set(style="ticks", rc={"lines.linewidth": 0.7})
 
@@ -96,7 +117,6 @@ def add_significance(ax, x1, x2, y, text, color="black"):
 
 # Get the maximum y-value in the plot for setting annotation heights
 y_max = 4
-
 
 
 fig1 = plt.figure(figsize=(3.54,2.5))
@@ -121,17 +141,14 @@ plt.yticks(fontsize=8)
 
 plt.show()
 
-#pathout = 'Q:/Neuro/data/projects/mek_sports01/stats/results/quest/'
+#pathout = 'Q:/data/projects/mek_sports01/stats/results/quest/'
 #os.chdir(pathout)
-
 #fig1.savefig("panas.svg", dpi=300, bbox_inches='tight')
 
 
 
-##############################################################################
-# Nasa TLX
+#%% NASA TLX
 
-# reduce to items 1,2, and 4
 item_names = ['tlx-1', 'tlx-2', 'tlx-4']
 pvals = []
 us = []
@@ -157,11 +174,11 @@ for item, raw_p, adj_p in zip(item_names, pvals, pvals_bonf):
    
 ''' tlx-1: raw p = 0.3949, Bonferroni-corrected p = 1.0000 -> mental demand
     tlx-2: raw p = 0.0000, Bonferroni-corrected p = 0.0000 -> physical demand
-    tlx-4: raw p = 0.0000, Bonferroni-corrected p = 0.0000 -> effort '''
+    tlx-4: raw p = 0.0000, Bonferroni-corrected p = 0.0000 -> effort
+    tlx-5: raw p = 0.0008, Bonferroni-corrected p = 0.0031 -> frustration  '''
 
 
-# plotting ------------------------------------------------------------------
-# Figure 3b
+#%% plotting ------------------------------------------------------------------
 
 df_long = pd.melt(df, id_vars=["ID", 'group'], value_vars = ['tlx-1', 'tlx-2',  # don't even consider 3
                   'tlx-4'], var_name="Question", value_name="Score")
@@ -198,7 +215,7 @@ plt.show()
 
 
 
-# calculate mean answers NASA tlx --------------------------------------------
+#%% calculate mean answers NASA tlx --------------------------------------------
 
 # separate for groups
 df_sit = df.loc[df['group'] == "sit"]
@@ -215,7 +232,6 @@ mean_sit_effort = df_sit['tlx-4'].mean()
 std_sit_effort = df_sit['tlx-4'].std()
 
 
-## ----------------------------------------------
 
 mean_bike_mental = df_bike['tlx-1'].mean()
 std_bike_mental = df_bike['tlx-1'].std()
@@ -227,9 +243,6 @@ mean_bike_effort = df_bike['tlx-4'].mean()
 std_bike_effort = df_bike['tlx-4'].std()
 
 
-
-## ----------------------------------------------
-
 mean_swim_mental = df_swim['tlx-1'].mean()
 std_swim_mental = df_swim['tlx-1'].std()
 
@@ -240,7 +253,7 @@ mean_swim_effort = df_swim['tlx-4'].mean()
 std_swim_effort = df_swim['tlx-4'].std()
 
 
-# calculate mean answers PANAS -----------------------------------------------
+#%% calculate mean answers PANAS -----------------------------------------------
 
 mean_sit_active = df_sit['P1'].mean()
 std_sit_active = df_sit['P1'].std()
@@ -255,7 +268,6 @@ mean_sit_alert = df_sit['P8'].mean()
 std_sit_alert = df_sit['P8'].std()
 
 
-## ----------------------------------------------
 
 mean_bike_active = df_bike['P1'].mean()
 std_bike_active = df_bike['P1'].std()
@@ -270,7 +282,6 @@ mean_bike_alert = df_bike['P8'].mean()
 std_bike_alert = df_bike['P8'].std()
 
 
-## ----------------------------------------------
 
 mean_swim_active = df_swim['P1'].mean()
 std_swim_active = df_swim['P1'].std()

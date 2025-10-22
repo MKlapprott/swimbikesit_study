@@ -1,36 +1,44 @@
+# %% Preparations ---------------------------------------------------------------
+
 import seaborn as sns
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.legend_handler import HandlerTuple
+import os
+import scipy
 import pingouin as pg
 import math
+from matplotlib.collections import PolyCollection
+from matplotlib.colors import to_rgb
+from statsmodels.stats.weightstats import ttest_ind
+import statsmodels.formula.api as smf
 
 
-sns.set_theme(style="ticks", rc={"lines.linewidth": 0.7})
+file_path = 'Q:/data/projects/mek_sports01/eegl/derivatives/'
+pathout = 'Q:/data/projects/mek_sports01/stats/results/words/'
+os.chdir(file_path)
 
-##############################################################################
-# General analyses -----------------------------------------------------------
-##############################################################################
+palette = ["#C0C0C0", "#CC3D3D","#1E90FF" ]
+sns.set(style="ticks", rc={"lines.linewidth": 0.7})
 
+# %% Load & Prepare data -----------------------------------------------------------
 
-### Check for exlusion criterion ---------------------------------------------
-# -> exclude subjects with accuracy < 50% in Go / NoGo task from all analyses
+### Check for outliers
 
-# Load the .txt file as a DataFrame
-df = pd.read_csv('performance_behav.txt', sep="\t")  # Adjust sep as needed
-
-
-# Convert from wide to long format
+os.chdir(file_path)
+df = pd.read_csv(os.path.join(file_path, 'performance_behav.txt'), sep="\t")
 df_long = pd.melt(df, id_vars=["ID", 'Group'], value_vars= ['accuracy_pre', 'accuracy_post'], var_name="Block", value_name="Accuracy")
 
+
+'Accuracy values are bounded (0–1), so the distribution is non-normal by nature, especially when values cluster near 1.'
+'Standard deviation–based criteria assume a roughly symmetric, unbounded distribution — which doesn’t hold here.'
 
 
 accuracy_cutoff = 0.50
 
-# Flag outliers
+# Flag & view outliers
 df_long['Outlier'] = df_long['Accuracy'] < accuracy_cutoff
-
-# View outliers
 outliers = df_long[df_long['Outlier']]
 print(outliers)
 
@@ -51,9 +59,9 @@ ACCURACY
 
 '''
 
-
-
 df = df.drop([10, 13, 28, 56, 61, 67, 76, 88])
+
+# additionally exclude swim group as they are only analyzed exploratorily
 df = df.loc[df['Group'] != "swim"] 
 
 # separate for groups
@@ -61,33 +69,21 @@ df_sit = df.loc[df['Group'] == "sit"]
 df_bike = df.loc[df['Group'] == "bike"]
 
 
-##############################################################################
-# Recalled words -------------------------------------------------------------
-##############################################################################
+# %% Recalled words -------------------------------------------------------------
 
 
-# Convert from wide to long format
 df_long = pd.melt(df, id_vars=["ID", 'Group'], value_vars= ['recall_pre', 'recall_post'], var_name="Block", value_name="Recall")
 
 df_long['Block'] = pd.Categorical(df_long['Block'], categories=['recall_pre', 'recall_post'], ordered=True)
 df_long['Group'] = pd.Categorical(df_long['Group'], categories=['sit', 'bike'], ordered=True) # , 'swim'
 
 
-
 group_order = ['sit', 'bike']
 block_order = ['recall_pre', 'recall_post']
 
-a = df['recall_pre'] + df['recall_post']
-a.max()
+#%% prepare Statistics
 
-
-
-##############################################################################
-# Statistics
-
-# pooled standard deviation --------------------------------------------------
-
-# 1) get pooled SD = 7.93
+# 1) get pooled SD
 
 SD_pre = math.sqrt(((len(df_bike)-1)*np.std(df_bike["recall_pre"])**2 +
                     (len(df_sit)-1)*np.std(df_sit["recall_pre"])**2) / (len(df_bike) + len(df_sit) - 2))
@@ -113,32 +109,31 @@ df_long['Block'] = pd.Categorical(df_long['Block'], categories=['recall_pre', 'r
 df_long['Group'] = pd.Categorical(df_long['Group'], categories=['sit', 'bike'], ordered=True)
 
 
-# test for ANOVA assumptions -------------------------------------------------
-
-# test for normality (p should be > 0.2)
-# -> normal distribution
+#%% test for ANOVA assumptions -------------------------------------------------
 
 normalitytest = pg.normality(df_long['standardized_score'])
 sns.kdeplot(df_long['standardized_score'])
 
-# test for sphericity (equal variances in within-subject var; p > 0.2)
-# -> sphericity is given
+# test for normality (p should be > 0.2)
+# -> normal distribution
 
 boxtest = pg.sphericity(df_long, dv = "standardized_score", within = "Block", subject = "ID")
 
+# test for sphericity (equal variances in within-subject var; p > 0.2)
+# -> sphericity is given
+
+homtest = pg.homoscedasticity(df_long, dv = "standardized_score", group = "Group")
 
 # test for homoscedasticity (equality of variance in between-subs; p > 0.2)
 # -> homoscedasticity is given
 
-homtest = pg.homoscedasticity(df_long, dv = "standardized_score", group = "Group")
 
-
-# calculate ANOVA ------------------------------------------------------------
+#%% calculate ANOVA ------------------------------------------------------------
 
 my_aov = pg.mixed_anova(data = df_long, dv = 'standardized_score', within = 'Block', between = 'Group', subject = 'ID')
 my_aov.round(3)
 
-# -> Significant Interaction!!! p = 0.035
+# -> Significant Interaction
 
 '''      Source   SS    DF1  DF2   MS      F   p-unc    np2  eps
 0        Group  1.495    1   57  1.495  0.653  0.422  0.011  NaN
@@ -159,8 +154,6 @@ df_wide = df_wide.merge(group_info, on='ID')
 # Encode Group as binary (0 = Control, 1 = Treatment)
 df_wide['Group_code'] = df_wide['Group'].map({'sit': 0, 'bike': 1})
 
-
-from statsmodels.stats.weightstats import ttest_ind
 
 # Group-wise change scores
 change_control = df_wide[df_wide['Group'] == 'sit']['Change']
@@ -186,17 +179,23 @@ print(f"Cohen's d = {cohen_d:.3f}")
 # Cohen's d = 0.563, medium effect size!
 
 
+#%% Plotting
 
-##############################################################################
-### Plotting
+def add_significance(ax, x1, x2, y, text, color="black"):
+    """ 
+    Add a line between two bars with text for significance annotations. 
+    x1, x2 : positions of bars for comparison
+    y : height at which the line is drawn
+    text : significance text (e.g., '*', '**', etc.)
+    """
+    # Add line between bars
+    ax.plot([x1, x1, x2, x2], [y, y + .2, y + .2, y], lw=1.5, color=color)
+    # Add significance text above the line
+    ax.text((x1 + x2) * 0.5, y + 0.3, text, ha='center', va='bottom', color=color)
 
-# not used in the paper, only for illustration
 
-### illustrate change --------------------------------------------------------
+df_recall = df_long
 
-palette = ["#696969", "#DC143C", "#1E90FF"]
-
-#df_long2 = df_long.loc[df_long['Group'] == "sit"]
 
 fig1 = plt.figure(figsize=(3.54,2.5))
 sns.set_style("ticks")
@@ -220,19 +219,13 @@ plt.show()
  
 #pathout = 'Q:/Neuro/data/projects/mek_sports01/stats/results/words/'
 #os.chdir(pathout)
-
 #fig1.savefig("recall.png", dpi=300, bbox_inches='tight')
 
 
 
+# %% Accuracy -----------------------------------------------------------------
 
-##############################################################################
-### Accuracy -----------------------------------------------------------------
-##############################################################################
-
-
-# Convert from wide to long format
-df_long = pd.melt(df, id_vars=["ID", 'Group'], value_vars= ['accuracy_pre', 'accuracy_post'], var_name="Block", value_name="Accuracy")
+df_long = pd.melt(df, id_vars=["ID", 'Group', 'age'], value_vars= ['accuracy_pre', 'accuracy_post'], var_name="Block", value_name="Accuracy")
 
 group_order = ['sit', 'bike']
 block_order = ['accuracy_pre', 'accuracy_post']
@@ -241,14 +234,9 @@ df_long['Block'] = pd.Categorical(df_long['Block'], categories=['accuracy_pre', 
 df_long['Group'] = pd.Categorical(df_long['Group'], categories=['sit', 'bike', 'swim'], ordered=True)
 
 
+#%% prepare Statistics
 
-##############################################################################
-# Statistics
-
-
-# pooled standard deviation --------------------------------------------------
-
-# 1) get pooled SD = 0.143
+# 1) get pooled SD
 
 SD_pre = math.sqrt(((len(df_bike)-1)*np.std(df_bike["accuracy_pre"])**2 +
                     (len(df_sit)-1)*np.std(df_sit["accuracy_pre"])**2) / ( len(df_bike) + len(df_sit) - 2))
@@ -273,35 +261,30 @@ df_long['Block'] = pd.Categorical(df_long['Block'], categories=['accuracy_pre', 
 df_long['Group'] = pd.Categorical(df_long['Group'], categories=['sit', 'bike'], ordered=True)
 
 
-# test for ANOVA assumptions -------------------------------------------------
-
-# test for normality (p should be > 0.2)
-# -> no normal distribution, but sample size large, soo it's okay
+#%% test for ANOVA assumptions -------------------------------------------------
 
 normalitytest = pg.normality(df_long['standardized_score'])
 sns.kdeplot(df_long['standardized_score'])
 
-# test for sphericity (equal variances in within-subject var; p > 0.2)
-# -> sphericity is given
+# test for normality (p should be > 0.2)
+# -> no normal distribution, but sample size large, soo it's okay
 
 boxtest = pg.sphericity(df_long, dv = "standardized_score", within = "Block", subject = "ID")
 
+# test for sphericity (equal variances in within-subject var; p > 0.2)
+# -> sphericity is given
+
+homtest = pg.homoscedasticity(df_long, dv = "standardized_score", group = "Group")
 
 # test for homoscedasticity (equality of variance in between-subs; p > 0.2)
 # -> homoscedasticity!
 
-homtest = pg.homoscedasticity(df_long, dv = "standardized_score", group = "Group")
-
-
-
-
-# calculate ANOVA ------------------------------------------------------------
-
+#%% calculate ANOVA ------------------------------------------------------------
 
 my_aov = pg.mixed_anova(data = df_long, dv = 'standardized_score', within = 'Block', between = 'Group', subject = 'ID')
 my_aov.round(3)
 
-# ->Interaction effect!!!
+# ->Interaction effect
 
 '''        Source     SS  DF1  DF2     MS      F  p-unc    np2  eps
 0        Group  1.094    1   50  1.094  1.143  0.290  0.022  NaN
@@ -322,8 +305,6 @@ df_wide = df_wide.merge(group_info, on='ID')
 # Encode Group as binary (0 = Control, 1 = Treatment)
 df_wide['Group_code'] = df_wide['Group'].map({'sit': 0, 'bike': 1})
 
-
-from statsmodels.stats.weightstats import ttest_ind
 
 # Group-wise change scores
 change_control = df_wide[df_wide['Group'] == 'sit']['Change'].dropna()
@@ -351,13 +332,7 @@ print(f"Cohen's d = {cohen_d:.3f}")
 # Cohen's d = 0.567, medium effect size!
 
 
-##############################################################################
-### Plotting
-
-### illustrate change --------------------------------------------------------
-
-
-palette = ["#696969", "#DC143C", "#1E90FF"]
+#%% Plotting
 
 fig1 = plt.figure(figsize=(3.25,2.5))
 sns.set_style("ticks")
@@ -386,12 +361,36 @@ plt.show()
 #fig1.savefig("accuracy.png", dpi=300, bbox_inches='tight')
 
 
+#%% check for covariation with age
 
-##############################################################################
-### Reaction time
-##############################################################################
+# Step 1: Baseline model (replicates mixed ANOVA: Group × Time)
 
-df = pd.read_csv('performance_behav.txt', sep="\t")  # Adjust sep as needed
+df_long = df_long.dropna()
+
+model1 = smf.mixedlm("standardized_score ~ Group * Block",
+                     data=df_long,
+                     groups=df_long["ID"])
+res1 = model1.fit()
+print(res1.summary())
+
+# Step 2: Add Age as covariate (confounder check)
+model2 = smf.mixedlm("standardized_score ~ Group * Block + age",
+                     data=df_long,
+                     groups=df_long["ID"])
+res2 = model2.fit()
+print(res2.summary())
+
+# Step 3: Test moderation (Age × Group × Time)
+model3 = smf.mixedlm("standardized_score ~ Group * Block * age",
+                     data=df_long,
+                     groups=df_long["ID"])
+res3 = model3.fit()
+print(res3.summary())
+
+
+# %% Reaction time
+
+df = pd.read_csv(os.path.join(file_path, 'performance_behav.txt'), sep="\t")  # Adjust sep as needed
 df = df.loc[df['Group'] != "swim"]                                              # exclude swim group
 
 
@@ -409,11 +408,9 @@ block_order = ['RT_pre', 'RT_post']
 
 
 ##############################################################################
-# Statistics
+# prepare Statistics
 
-# pooled standard deviation --------------------------------------------------
-
-# 1) get pooled SD = 50.95
+# 1) get pooled SD
 
 SD_pre = math.sqrt(((len(df_bike)-1)*np.std(df_bike["RT_pre"])**2 +
                     (len(df_sit)-1)*np.std(df_sit["RT_pre"])**2) /  len(df_bike) + len(df_sit) - 2)
@@ -440,50 +437,38 @@ df_long['Group'] = pd.Categorical(df_long['Group'], categories=['sit', 'bike'], 
 
 # test for ANOVA assumptions -------------------------------------------------
 
+normalitytest = pg.normality(df_long['standardized_score'])
+sns.kdeplot(df_long['standardized_score'])
+
 # test for normality (p should be > 0.2)
 # -> no normal distribution, but sample size large, soo it's okay
 
-normalitytest = pg.normality(df_long['standardized_score'])
-sns.kdeplot(df_long['standardized_score'])
+boxtest = pg.sphericity(df_long, dv = "standardized_score", within = "Block", subject = "ID")
 
 # test for sphericity (equal variances in within-subject var; p > 0.2)
 # -> sphericity is given
 
-boxtest = pg.sphericity(df_long, dv = "standardized_score", within = "Block", subject = "ID")
-
+homtest = pg.homoscedasticity(df_long, dv = "standardized_score", group = "Group")
 
 # test for homoscedasticity (equality of variance in between-subs; p > 0.2)
 # -> no homoscedasticity!
 
-homtest = pg.homoscedasticity(df_long, dv = "standardized_score", group = "Group")
 
-
-
-# 3) ANOVA
+#%% ANOVA
 
 my_aov = pg.mixed_anova(data = df_long, dv = 'standardized_score', within = 'Block', between = 'Group', subject = 'ID')
-print(my_aov.round(3))
+my_aov.round(3)
 
-# main effect of block -> ineraction almost
+# main effect of block 
 
 '''        Source     SS  DF1  DF2     MS      F  p-unc    np2  eps
 0        Group  0.362    1   50  0.362  0.361  0.551  0.007  NaN
 1        Block  0.951    1   50  0.951  7.658  0.008  0.133  1.0
-2  Interaction  0.182    1   50  0.182  1.469  0.231  0.029  NaN
-'''
+2  Interaction  0.182    1   50  0.182  1.469  0.231  0.029  NaN'''
 
 
+#%% Plotting
 
-
-##############################################################################
-### Plotting
-
-
-
-### illustrate change --------------------------------------------------------
-
-
-palette = ["#696969", "#DC143C", "#1E90FF"]
 
 fig2 = plt.figure(figsize=(3.25,2.5))
 sns.set_style("ticks")
@@ -506,15 +491,6 @@ ax.set_xticklabels(['Pre','Post'])
 plt.show()
 
 #fig2.savefig("rt.png", dpi=300, bbox_inches='tight')
-
-
-
-
-
-
-
-
-
 
 
 

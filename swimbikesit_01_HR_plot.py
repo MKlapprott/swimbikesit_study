@@ -1,12 +1,22 @@
+# %% preparations
+
+import os
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pingouin as pg
-from pathlib import Path
 
+
+
+# Paths
+path_datin = "Q:/data/projects/mek_sports01/eegl/rawdata/"
+path_datout = "Q:/data/projects/mek_sports01/stats/results/hr/"
+os.chdir(path_datin)
+
+palette = ["#C0C0C0", "#CC3D3D","#1E90FF" ]
 
 # Load and prepare data
-df = pd.read_csv('sub_info.txt', sep = "\t")
+df = pd.read_csv(os.path.join(path_datin, 'mek_sports01_sub_info.txt'), sep = "\t")
 df = df.iloc[:97, :]
 df = df.drop([3, 15, 22, 27, 36, 51, 58])  # Remove excluded subjects
 df = df.reset_index(drop = True)
@@ -19,7 +29,27 @@ n_subs = len(my_subs)
 min_length = 1112
 
 
-# Initialize data structures
+#%% check for intensity relative to age
+
+df["HR_max"] = 208 - (df["age"]*0.7)
+
+# compute relative intensity for the intervention block
+df["relInt_pre"] = df["hr_pre"] / df["HR_max"] * 100
+df["relInt_int"] = df["hr_int"] / df["HR_max"] * 100
+df["relInt_post"] = df["hr_post"] / df["HR_max"] * 100
+
+#%% quick descriptive stats
+group_means = df.groupby("group")["relInt_int"].agg(["mean", "std", "min", "max"])
+print(group_means)
+
+df_long = pd.melt(df, id_vars=["ID", 'group'], value_vars= ['relInt_pre', 'relInt_int', 'relInt_post'], var_name="Block", value_name="Rel_HR")
+df_long['group'] = pd.Categorical(df_long['group'], categories=['sit', 'bike', 'swim'], ordered=True) #
+
+
+sns.kdeplot(data=df_long, x="Rel_HR", hue="group", palette=palette, fill = True, alpha = 0.5)
+
+
+# %% Initialize data structures
 data_list_all_subs_pre_sit, data_list_all_subs_int_sit, data_list_all_subs_post_sit = [], [], []
 data_list_all_subs_pre_bike, data_list_all_subs_int_bike, data_list_all_subs_post_bike = [], [], []
 data_list_all_subs_pre_swim, data_list_all_subs_int_swim, data_list_all_subs_post_swim = [], [], []
@@ -81,40 +111,34 @@ print(posthoc)
 """
 
 
-# Initialize an empty list to hold all participant data
+# %% Initialize an empty list to hold all participant data
 all_data = []
 
 df = df.reset_index(drop = True)
 
 # Loop through subjects and process data
-current_dir = Path.cwd()
-sports_dirs = [d for d in current_dir.iterdir() if d.is_dir() and d.name.startswith("sports")]
-
-for sub_dir in sports_dirs:
-    files = sorted([f for f in sub_dir.iterdir() if f.suffix == ".csv"])
+for idx, sub in enumerate(my_subs):
+    sub_path = os.path.join(path_datin, sub)
+    os.chdir(sub_path)
+    files = sorted([f for f in os.listdir(sub_path) if f.endswith(".csv")])
     HR_files = files[:3]
-
+    
     # Check we have at least 3 files
     if len(HR_files) < 3:
-        print(f"[Warning] {sub_dir.stem} has only {len(files)} CSVs; skipping.")
-        continue
-    
-    # check if sub directory name matches the ID in df
-    if sub_dir.stem not in my_subs:
-        print(f"[Warning] {sub_dir.stem} not found in df; skipping.")
+        print(f"[Warning] {sub} has only {len(files)} CSVs; skipping.")
         continue
 
     # Process pre, int, post files
     for i, block in enumerate(["pre", "int", "post"]):
+        
         heart_rate_series = pd.read_csv(HR_files[i], sep=",").dropna().iloc[:min_length, 1]
         heart_rate_data = heart_rate_series.to_frame(name="heart_rate")
-
-        heart_rate_data["ID"] = sub_dir.stem
-        idx = my_subs.index(sub_dir.stem)  # Get the index of the
+        
+        heart_rate_data["ID"] = sub
         heart_rate_data["Group"] = df.loc[idx, 'group']
         heart_rate_data["Block"] = block
         heart_rate_data["time"] = range(1, len(heart_rate_data) + 1)
-
+                    
         all_data.append(heart_rate_data)
         
         
@@ -126,17 +150,13 @@ columns = [col for col in final_df.columns if col != "heart_rate"] + ["heart_rat
 final_df = final_df[columns]
 
 
+# %% plot -----------------------------------------------------------------------
 
-##############################################################################
-# plot -----------------------------------------------------------------------
-
-
-palette = ["#696969", "#DC143C","#1E90FF" ]
 final_df['Group'] = pd.Categorical(final_df['Group'], categories=['sit', 'bike', 'swim'], ordered=True)
 
 # Pre -----------------------------------------------------------------------
 
-sns.set_theme(style="ticks", rc={"lines.linewidth": 0.7})
+sns.set(style="ticks", rc={"lines.linewidth": 0.8})
 
 df_pre = final_df[final_df['Block'].str.contains("pre")]
 
@@ -155,6 +175,12 @@ plt.xticks(fontsize=8)
 plt.yticks(fontsize=8)
 
 plt.show()
+
+#%%
+pathout = 'Q:/data/projects/mek_sports01/stats/results/hr/'
+os.chdir(pathout)
+
+fig1.savefig("hr_pre.svg", dpi=300, bbox_inches='tight')
 
 # Int -----------------------------------------------------------------------
 
@@ -177,6 +203,8 @@ ax.spines['left'].set_visible(False)  # This removes the left spine (y-axis line
 plt.show()
 
 
+fig2.savefig("hr_int.svg", dpi=300, bbox_inches='tight')
+
 # Post -----------------------------------------------------------------------
 
 df_post = final_df[final_df['Block'].str.contains("post")]
@@ -198,5 +226,11 @@ ax.yaxis.set_visible(False)  # This removes the entire y-axis (ticks, labels, an
 ax.spines['left'].set_visible(False)  # This removes the left spine (y-axis line)
 
 plt.show()
+
+
+fig3.savefig("hr_post.svg", dpi=300, bbox_inches='tight')
+
+
+
 
 
